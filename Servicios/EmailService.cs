@@ -58,7 +58,8 @@ namespace Servicios
 
                 var builder = new BodyBuilder();
                 // Banner opcional
-                var bannerPath = Path.Combine(AppContext.BaseDirectory, "Templates", "elecciones.jpg");
+                var bannerPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "Plantillas", "img2.jpg");
+                //var bannerPath = Path.Combine(AppContext.BaseDirectory, "Plantillas", "img2.jpg");
                 if (File.Exists(bannerPath))
                 {
                     var bannerImage = builder.LinkedResources.Add(bannerPath);
@@ -67,7 +68,7 @@ namespace Servicios
                 }
                 else
                 {
-                    bodyHtml = bodyHtml.Replace("{{img2}}", "");
+                    bodyHtml = bodyHtml.Replace("{{img2}}", "IMG no encontrada");
                 }
                 builder.HtmlBody = bodyHtml;
                 if (attachments != null)
