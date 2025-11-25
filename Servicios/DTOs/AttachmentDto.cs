@@ -8,7 +8,10 @@ namespace Servicios.DTOs
 {
     public class AttachmentDto
     {
-        public string FileName { get; set; }
-        public byte[] Content { get; set; }
+        // Ideally, a file name can be null if not loaded yet
+        public string? FileName { get; set; }
+
+        // Initialize byte array to empty so it's never null
+        public byte[] Content { get; set; } = Array.Empty<byte>();
     }
 }

@@ -12,6 +12,7 @@
     <PackageReference Include="Microsoft.VisualStudio.Services.Client" Version="19.225.1" />
     <PackageReference Include="Microsoft.VisualStudio.Services.InteractiveClient" Version="19.225.1" />
     <PackageReference Include="System.Configuration.ConfigurationManager" Version="10.0.0" />
+    <ProjectReference Include="..\Servicios\Servicios.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,5 +1,4 @@
-﻿// Desactiva las advertencias estrictas de nulos para simplificar la compilación
-#nullable disable
+﻿#nullable disable
 
 using System;
 using System.Collections.Generic;
@@ -15,6 +14,7 @@ using Microsoft.VisualStudio.Services.Common;
 using Microsoft.VisualStudio.Services.WebApi;
 using Microsoft.VisualStudio.Services.WebApi.Patch;
 using Microsoft.VisualStudio.Services.WebApi.Patch.Json;
+using Servicios.Helpers;
 
 namespace AzureTestSyncApp
 {
@@ -22,30 +22,65 @@ namespace AzureTestSyncApp
     {
         static async Task Main(string[] args)
         {
-            var baseDir = Directory.GetParent(AppDomain.CurrentDomain.BaseDirectory)?.Parent?.Parent?.Parent?.FullName 
-                          ?? AppDomain.CurrentDomain.BaseDirectory;
-            
-            LoadEnvFile(Path.Combine(baseDir, ".env"));
+            Console.WriteLine("--- INICIANDO SISTEMA DE VALIDACIÓN GHERKIN ---");
 
-            var sync = new AzureTestSync();
-            await sync.RunAsync();
+            // --- CORRECCIÓN: Cargar las variables del archivo .env primero ---
+            // Buscamos el archivo .env en el directorio actual
+            string envPath = Path.Combine(Directory.GetCurrentDirectory(), ".env");
+            
+            // Si estás depurando en Visual Studio, a veces el directorio base es bin/Debug, 
+            // así que intentamos buscarlo un nivel arriba si no existe:
+            if (!File.Exists(envPath))
+            {
+                // Intento de buscar en la raíz del proyecto (ajusta según tu estructura)
+                envPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "..", ".env");
+            }
+
+            LoadEnvFile(envPath); 
+            // ----------------------------------------------------------------
+
+            bool success = true;
+
+            // 1. Initialize the sync/test engine
+            try 
+            {
+                var tester = new AzureTestSync();
+
+                // 2. Run the full cycle: 
+                success = await tester.RunAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"🔥 Error Crítico: {ex.Message}");
+                success = false;
+            }
+
+            Console.WriteLine("--- PROCESO FINALIZADO ---");
+
+            if (!success) Environment.Exit(1);
         }
 
+        // YOUR FUNCTION (Added 'static' to call it from Main)
+        // Delegates to EmailFileHelper as requested
+        public static List<string> LeerCorreosDesdeTxt(string rutaTxt)
+        {
+            // Ensure you have the EmailFileHelper class defined in your project
+            return EmailFileHelper.LeerCorreosDesdeTxt(rutaTxt);
+        }
+
+        // Kept for reference (used by LoadEnvFile logic if needed, but currently Main is replaced)
         static void LoadEnvFile(string envPath)
         {
             if (!File.Exists(envPath)) return;
-
             try
             {
                 foreach (var rawLine in File.ReadLines(envPath, Encoding.UTF8))
                 {
                     var line = rawLine.Trim();
                     if (string.IsNullOrEmpty(line) || line.StartsWith("#") || !line.Contains("=")) continue;
-
                     var parts = line.Split(new[] { '=' }, 2);
                     var key = parts[0].Trim();
                     var value = parts[1].Trim().Trim('\'', '"');
-
                     if (!string.IsNullOrEmpty(key) && Environment.GetEnvironmentVariable(key) == null)
                     {
                         Environment.SetEnvironmentVariable(key, value);
@@ -57,39 +92,9 @@ namespace AzureTestSyncApp
                 Console.WriteLine($"⚠️ No se pudo cargar el archivo .env: {exc.Message}");
             }
         }
-
-        // --- CORE LOGIC TO TEST (Static) ---
-        public static List<string> LeerCorreosDesdeTxt(string contenidoRaw)
-        {
-            var listaCorreos = new List<string>();
-            var regexCorreo = new Regex(@"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.Compiled);
-
-            // 1. Check if the content string is empty
-            if (string.IsNullOrWhiteSpace(contenidoRaw))
-            {
-                // Console.WriteLine("⚠️ La cadena de texto está vacía."); // Optional logging
-                return listaCorreos;
-            }
-
-            // 2. Split the string by common delimiters (semicolon, comma, new lines)
-            var delimitadores = new[] { ';', ',', '\r', '\n' };
-            var correos = contenidoRaw.Split(delimitadores, StringSplitOptions.RemoveEmptyEntries);
-
-            // 3. Iterate through the array
-            foreach (var item in correos)
-            {
-                var correo = item.Trim(); 
-
-                if (!string.IsNullOrEmpty(correo) && regexCorreo.IsMatch(correo))
-                {
-                    listaCorreos.Add(correo);
-                }
-            }
-
-            return listaCorreos;
-        }
     }
 
+    // --- AZURE SYNC CLASS (Preserved) ---
     public class AzureTestSync
     {
         private readonly string _pat;
@@ -109,7 +114,6 @@ namespace AzureTestSyncApp
             _projectName = GetEnvVar("PROJECT_NAME", "CorreosMasivos");
             _planId = int.Parse(GetEnvVar("PLAN_ID", "6"));
             _suiteId = int.Parse(GetEnvVar("SUITE_ID", "9"));
-            // Point this to your actual .feature file location
             _gherkinPath = GetEnvVar("GHERKIN_PATH", "python/features/mapeo_canales.feature");
 
             Connect();
@@ -152,7 +156,7 @@ namespace AzureTestSyncApp
             }
         }
 
-        // --- INTEGRATED ROBUST PARSER (From Code A) ---
+        // --- INTEGRATED ROBUST PARSER ---
         private (string Title, string XmlSteps, List<Dictionary<string, string>> DataRows) ParseGherkinRobust(string gherkinText)
         {
             if (string.IsNullOrWhiteSpace(gherkinText))
@@ -165,9 +169,7 @@ namespace AzureTestSyncApp
 
             string title = "Gherkin Import";
             
-            // Helper class for internal step logic
             var stepsList = new List<(string Action, string Expected)>();
-            
             var dataRows = new List<Dictionary<string, string>>();
             List<string> headers = null;
             bool readingExamples = false;
@@ -175,7 +177,6 @@ namespace AzureTestSyncApp
             List<string> currentAction = new List<string>();
             List<string> currentExpected = new List<string>();
 
-            // Local function to save current buffer to step list
             void SaveStep()
             {
                 if (currentAction.Count > 0 || currentExpected.Count > 0)
@@ -186,7 +187,6 @@ namespace AzureTestSyncApp
                 }
             }
 
-            // Azure Format Helper: Replaces <Var> with @Var
             string AzureFormat(string text)
             {
                 return Regex.Replace(text, @"<([^>]+)>", "@$1");
@@ -196,7 +196,6 @@ namespace AzureTestSyncApp
             {
                 string cleanLine = AzureFormat(line);
 
-                // Detect Title
                 if (cleanLine.StartsWith("Scenario Outline:") || cleanLine.StartsWith("Scenario:"))
                 {
                     var parts = cleanLine.Split(new[] { ':' }, 2);
@@ -204,20 +203,17 @@ namespace AzureTestSyncApp
                     continue;
                 }
 
-                // Detect Examples Table Start
                 if (cleanLine.StartsWith("Examples:"))
                 {
                     readingExamples = true;
                     continue;
                 }
 
-                // Process Table
                 if (readingExamples)
                 {
                     if (cleanLine.StartsWith("|"))
                     {
                         var rawSegments = cleanLine.Split('|');
-                        // Clean up the split artifacts
                         var parts = rawSegments.Skip(1).Take(rawSegments.Length - 2).Select(p => p.Trim()).ToList();
 
                         if (parts.Count > 0)
@@ -240,18 +236,13 @@ namespace AzureTestSyncApp
                     continue;
                 }
 
-                // Gherkin Logic (Given/When/Then)
                 bool isAction = cleanLine.StartsWith("Given") || cleanLine.StartsWith("When");
                 bool isResult = cleanLine.StartsWith("Then");
                 bool isCont = cleanLine.StartsWith("And") || cleanLine.StartsWith("But");
 
                 if (isAction)
                 {
-                    // If we were building an Expected result, that step is done. Save it.
-                    if (currentExpected.Count > 0)
-                    {
-                        SaveStep();
-                    }
+                    if (currentExpected.Count > 0) SaveStep();
                     currentAction.Add(cleanLine);
                 }
                 else if (isResult)
@@ -260,16 +251,13 @@ namespace AzureTestSyncApp
                 }
                 else if (isCont)
                 {
-                    // Attach 'And' to whichever block is active
                     if (currentExpected.Count > 0) currentExpected.Add(cleanLine);
                     else currentAction.Add(cleanLine);
                 }
             }
             
-            // Save final step
             SaveStep();
 
-            // Generate XML Steps
             StringBuilder xmlStepsBuilder = new StringBuilder();
             xmlStepsBuilder.Append($"<steps id=\"0\" last=\"{stepsList.Count + 1}\">");
             
@@ -308,7 +296,6 @@ namespace AzureTestSyncApp
                 xml.Append("<Table1>");
                 foreach (var kvp in row)
                 {
-                    // Escape basic XML characters
                     string safeValue = kvp.Value.Replace("<", "&lt;").Replace(">", "&gt;");
                     xml.Append($"<{kvp.Key}>{safeValue}</{kvp.Key}>");
                 }
@@ -352,7 +339,6 @@ namespace AzureTestSyncApp
             var (title, xmlSteps, dataRows) = ParseGherkinRobust(gherkinRaw);
             var datasourceXml = CreateDatasourceXml(dataRows);
             
-            // Try to find existing test case by title
             var existingId = await BuscarExistenteAsync(title);
 
             var patchDocument = new JsonPatchDocument();
@@ -411,7 +397,6 @@ namespace AzureTestSyncApp
 
             List<TestPoint> points = null;
 
-            // Retry loop to find points (sometimes API lags after linking)
             for (int attempt = 0; attempt < 5; attempt++)
             {
                 try
@@ -444,7 +429,6 @@ namespace AzureTestSyncApp
 
                 TestCaseResult resultToUpdate = null;
 
-                // Wait for the result object to be created
                 for (int i = 0; i < 10; i++)
                 {
                     var results = await _testClient.GetTestResultsAsync(_projectName, testRun.Id);
@@ -479,65 +463,103 @@ namespace AzureTestSyncApp
         {
             string finalOutcome = "Passed";
             var executionLog = new List<string>();
+            int passedCount = 0;
 
-            Console.WriteLine("🧪 Validando lógica localmente...");
+            Console.WriteLine($"\n🧪 Validando {dataRows.Count} casos de prueba del Gherkin...\n");
 
             for (int i = 0; i < dataRows.Count; i++)
             {
                 var row = dataRows[i];
                 
-                // UPDATED: Mapping to the column names from your Gherkin snippet (Input A)
-                var inputVal = row.ContainsKey("contenido_txt") ? row["contenido_txt"] : "";
-                var expectedVal = row.ContainsKey("lista_valida") ? row["lista_valida"] : "";
+                // 1. EXTRACT DATA FROM GHERKIN
+                string rawInput = row.ContainsKey("contenido_txt") ? row["contenido_txt"] : "";
+                string expectedString = row.ContainsKey("lista_valida") ? row["lista_valida"] : "";
+                string note = row.ContainsKey("Notas") ? row["Notas"] : "Sin notas";
+
+                // 2. TRANSFORM INPUT: 
+                // The Gherkin rule states ";" represents a new line. 
+                // We write this content to a temporary file to simulate the input.
+                string fileContent = rawInput.Replace(";", Environment.NewLine);
+                string tempFilePath = Path.GetTempFileName(); // Creates a unique .tmp file on disk
 
                 try
                 {
-                    // Execute Static Method
-                    var listResult = Program.LeerCorreosDesdeTxt(inputVal);
-                    var actualVal = listResult != null ? string.Join(",", listResult) : "";
+                    File.WriteAllText(tempFilePath, fileContent);
 
-                    if (actualVal != expectedVal)
+                    // 3. EXECUTE THE LOGIC
+                    // We call the actual helper using the temp file path
+                    List<string> actualEmails = EmailFileHelper.LeerCorreosDesdeTxt(tempFilePath);
+
+                    // 4. PARSE EXPECTED OUTPUT
+                    // Expected list is comma-separated in Gherkin (e.g. "a@a.com,b@b.com")
+                    // We split, trim, and remove empties to get a clean list
+                    var expectedList = expectedString.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
+                                                    .Select(e => e.Trim())
+                                                    .OrderBy(e => e) // Sort for accurate comparison
+                                                    .ToList();
+
+                    var actualListSorted = actualEmails.OrderBy(e => e).ToList();
+
+                    // 5. COMPARE RESULTS
+                    bool areEqual = Enumerable.SequenceEqual(actualListSorted, expectedList);
+
+                    if (areEqual)
                     {
-                        finalOutcome = "Failed";
-                        executionLog.Add($"[FAIL] Row {i + 1}: Input '{inputVal}' -> Got '{actualVal}', Expected '{expectedVal}'");
+                        executionLog.Add($"✅ Row {i + 1} PASSED: {note}");
+                        passedCount++;
                     }
                     else
                     {
-                        executionLog.Add($"[PASS] Row {i + 1}: Input '{inputVal}' -> '{actualVal}'");
+                        finalOutcome = "Failed";
+                        string actualJoined = string.Join(", ", actualListSorted);
+                        executionLog.Add($"❌ Row {i + 1} FAILED: {note}");
+                        executionLog.Add($"   Expected: [{expectedString}]");
+                        executionLog.Add($"   Actual:   [{actualJoined}]");
+                        executionLog.Add($"   Input used: {rawInput}");
                     }
                 }
                 catch (Exception e)
                 {
                     finalOutcome = "Failed";
-                    executionLog.Add($"[ERROR] Row {i + 1}: Crashed on '{inputVal}'. Error: {e.Message}");
+                    executionLog.Add($"💥 Row {i + 1} EXCEPTION: {e.Message}");
+                }
+                finally
+                {
+                    // 6. CLEANUP
+                    // Always delete the temp file so we don't clutter the drive
+                    if (File.Exists(tempFilePath)) File.Delete(tempFilePath);
                 }
             }
 
+            Console.WriteLine($"\n📊 Resumen: {passedCount}/{dataRows.Count} Tests Pasaron. Resultado General: {finalOutcome}");
             return (finalOutcome, executionLog);
         }
 
-        public async Task RunAsync()
+        public async Task<bool> RunAsync()
         {
-            // 1. Create or Update Test Case based on Gherkin
             var workItemId = await CrearTestCaseReparadoAsync();
-            
-            // 2. Link to Suite
             await VincularAsync(workItemId);
 
-            // 3. Run Validation locally to decide Pass/Fail
             var gherkinRaw = GetFileContent(_gherkinPath);
-            if (string.IsNullOrEmpty(gherkinRaw)) return;
+            if (string.IsNullOrEmpty(gherkinRaw)) return false;
 
             var (_, _, dataRows) = ParseGherkinRobust(gherkinRaw);
+            if (dataRows.Count == 0)
+            {
+                Console.WriteLine("⚠️ Error: No se encontraron datos de prueba en el Gherkin.");
+                return false;
+            }
+
             var (finalOutcome, executionLog) = ValidarYEjecutar(dataRows);
 
-            // 4. Upload Result to Azure
             if (workItemId.HasValue)
             {
                 var fullComment = string.Join("\n", executionLog);
                 Console.WriteLine($"🚀 Subiendo resultado a Azure: {finalOutcome}");
                 await EjecutarTestCaseAsync(workItemId, outcome: finalOutcome, runComment: fullComment);
             }
+
+            return finalOutcome == "Passed";
         }
     }
 }

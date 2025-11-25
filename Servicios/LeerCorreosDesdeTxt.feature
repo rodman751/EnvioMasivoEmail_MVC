@@ -13,11 +13,11 @@ Feature: Filtrado de correos en LeerCorreosDesdeTxt
     And la aserción Passed debe ser True
 
     Examples: Casos de prueba
-      | contenido_txt                                              | lista_valida                                         | Notas                                                                 |
-      | simple @test.com;admin@empresa.org; allunav@utn.edu.ec    | admin@empresa.org,allunav@utn.edu.ec               | Caso base: Convierte ; en saltos de línea.                            |
-      |  espacios@inicio.com ; final@espacios.com                  | espacios@inicio.com,final@espacios.com               | Trim(): El código C# hace .Trim() por línea, eliminando espacios ext. |
-      | usuario@dominio; @solodominio.com; user@.com               |                                                      | Inválidos: El regex requiere caracteres antes Y después del punto.    |
-      | con espacio@test.com; user@dom inio.com                    |                                                      | Inválidos: El regex [^@\s] prohíbe espacios internos.                 |
-      | user+tag@gmail.com; nombre.apellido@sub.domain.co.uk       | user+tag@gmail.com,nombre.apellido@sub.domain.co.uk  | Válidos: El regex permite + y subdominios múltiples.                  |
-      | ;   ;                                                      |                                                      | Vacíos: IsNullOrEmpty ignora líneas vacías tras el split.             |
-      | MIXTO@test.com; malo-sin-arroba;  valido.trim@test.net  ;user@local | MIXTO@test.com,valido.trim@test.net          | Mixto: user@local falla porque el regex obliga a tener un punto (.).  |
+      | contenido_txt                                                 | lista_valida                                               | Notas                                                                 |
+      | simple@test.com;admin@empresa.org; allunav@utn.edu.ec         | admin@empresa.org,allunav@utn.edu.ec,simple@test.com       | Caso base: Todos validos. Removemos el espacio erróneo en simple@.    |
+      |  espacios@inicio.com ; final@espacios.com                     | espacios@inicio.com,final@espacios.com                     | Trim(): El código C# hace .Trim() por línea, eliminando espacios ext. |
+      | usuario@dominio; @solodominio.com; user@.com                  |                                                            | Inválidos: El regex requiere caracteres antes Y después del punto.    |
+      | con espacio@test.com; user@dom inio.com                       |                                                            | Inválidos: El regex [^@\s] prohíbe espacios internos.                 |
+      | user+tag@gmail.com; nombre.apellido@sub.domain.co.uk          | user+tag@gmail.com,nombre.apellido@sub.domain.co.uk        | Válidos: El regex permite + y subdominios múltiples.                  |
+      | ;   ;                                                         |                                                            | Vacíos: IsNullOrEmpty ignora líneas vacías tras el split.             |
+      | MIXTO@test.com; malo-sin-arroba;  valido.trim@test.net  ;user@local | MIXTO@test.com,valido.trim@test.net                  | Mixto: user@local falla porque el regex obliga a tener un punto (.).  |

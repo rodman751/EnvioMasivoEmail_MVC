@@ -1,12 +1,13 @@
-﻿using ClosedXML.Excel;
+﻿//Servicios/EmailService.cs
+
+using ClosedXML.Excel;
 using MimeKit;
 using Servicios.DTOs;
 using Servicios.Interfaz;
+using Servicios.Helpers;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using MailKit.Net.Smtp;
 using MailKit.Security;
@@ -159,7 +160,12 @@ namespace Servicios
 
             using var workbook = new XLWorkbook(rutaExcel);
             var worksheet = workbook.Worksheet(1); // Primera hoja
-            var rows = worksheet.RangeUsed().RowsUsed().Skip(4); // Salta encabezado
+            var usedRange = worksheet.RangeUsed();
+            if (usedRange == null)
+            {
+                return lista;
+            }
+            var rows = usedRange.RowsUsed().Skip(4); // Salta encabezado
 
             foreach (var row in rows)
             {
@@ -179,22 +185,7 @@ namespace Servicios
 
         public List<string> LeerCorreosDesdeTxt(string rutaTxt)
         {
-            var listaCorreos = new List<string>();
-            var regexCorreo = new Regex(@"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.Compiled);
-
-            foreach (var linea in File.ReadLines(rutaTxt))
-            {
-                var correo = linea.Trim();
-                if (!string.IsNullOrEmpty(correo) && regexCorreo.IsMatch(correo))
-                {
-                    listaCorreos.Add(correo);
-                }
-                else
-                {
-                    Console.WriteLine($"Correo inválido ignorado: {correo}");
-                }
-            }
-            return listaCorreos;
+            return EmailFileHelper.LeerCorreosDesdeTxt(rutaTxt);
         }
     }
 }
