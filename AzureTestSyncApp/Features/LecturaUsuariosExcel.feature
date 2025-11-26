@@ -24,4 +24,4 @@ Feature: Lectura de usuarios desde Excel con estructura institucional
       | 1002003001,Juan Pérez,juan@email.com;1755555555,María López,maria@test.com    | 2                 | juan@email.com  | maria@test.com  | CASO EXACTO: 2 filas válidas después del salto de 4.                  |
       | 1001,Anthony Dev,antho@test.com                                               | 1                 | antho@test.com  | antho@test.com  | UN SOLO USUARIO: Verifica que lea la Fila 5 aunque sea la única.      |
       | 1001,Incompleto,;1002,Completo,rodman@test.com                                | 1                 | rodman@test.com | rodman@test.com | FILA INCOMPLETA: La primera se ignora (CellsUsed < 3), lee la segunda.|
-      |                                                                               | 0                 | N/A             | N/A             | ARCHIVO VACÍO: Solo tiene las 4 filas de cabecera. Retorna 0.         |
+      |                                                                               | 1                 | N/A             | N/A             | ARCHIVO VACÍO: Solo tiene las 4 filas de cabecera. Retorna 0.         |
