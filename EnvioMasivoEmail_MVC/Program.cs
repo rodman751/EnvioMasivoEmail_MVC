@@ -16,6 +16,7 @@ builder.Services.AddSingleton(sp =>
     return new EmailService(settings);
 });
 builder.Services.AddSingleton<IEmailService>(sp => sp.GetRequiredService<EmailService>());
+builder.Services.AddScoped<IExcelService, ExcelService>();
 
 var app = builder.Build();
 

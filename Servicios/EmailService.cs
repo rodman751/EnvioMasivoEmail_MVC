@@ -1,13 +1,11 @@
 ﻿//Servicios/EmailService.cs
 
-using ClosedXML.Excel;
 using MimeKit;
 using Servicios.DTOs;
 using Servicios.Interfaz;
 using Servicios.Helpers;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 using MailKit.Net.Smtp;
 using MailKit.Security;
@@ -25,7 +23,12 @@ namespace Servicios
             _settings = settings;
         }
 
-        public async Task<List<string>> SendBulkEmailsAsync(IEnumerable<string> emails, string subject, string bodyHtml, List<AttachmentDto> attachments)
+        public async Task<List<string>> SendBulkEmailsAsync(
+            IEnumerable<string> emails, 
+            string subject, 
+            string bodyHtml, 
+            List<AttachmentDto>? attachments // <--- Agrega el '?' aquí también
+        )
         {
             var logs = new List<string>();
             using var client = new SmtpClient();
@@ -152,35 +155,6 @@ namespace Servicios
             }
             await Task.Delay(1000);
             await client.DisconnectAsync(true);
-        }
-
-        public List<DataUsersDto> LeerUsuariosDesdeExcel(string rutaExcel)
-        {
-            var lista = new List<DataUsersDto>();
-
-            using var workbook = new XLWorkbook(rutaExcel);
-            var worksheet = workbook.Worksheet(1); // Primera hoja
-            var usedRange = worksheet.RangeUsed();
-            if (usedRange == null)
-            {
-                return lista;
-            }
-            var rows = usedRange.RowsUsed().Skip(4); // Salta encabezado
-
-            foreach (var row in rows)
-            {
-                if (row.CellsUsed().Count() >= 3)
-                {
-                    var usuario = new DataUsersDto
-                    {
-                        Cedula = row.Cell(1).GetString(),
-                        Nombres = row.Cell(2).GetString(),
-                        Email = row.Cell(3).GetString()
-                    };
-                    lista.Add(usuario);
-                }
-            }
-            return lista;
         }
 
         public List<string> LeerCorreosDesdeTxt(string rutaTxt)

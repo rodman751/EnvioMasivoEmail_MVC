@@ -20,10 +20,14 @@ namespace Servicios.Interfaz
         //string templatePath,
         //object modelCommon);
 
-        List<DataUsersDto> LeerUsuariosDesdeExcel(string rutaExcel);
         List<string> LeerCorreosDesdeTxt(string rutaTxt);
 
         // Nuevo método eficiente para envío masivo usando una sola conexión SMTP
-        Task<List<string>> SendBulkEmailsAsync(IEnumerable<string> emails, string subject, string bodyHtml, List<AttachmentDto> attachments);
+        Task<List<string>> SendBulkEmailsAsync(
+            IEnumerable<string> emails, 
+            string subject, 
+            string bodyHtml, 
+            List<AttachmentDto>? attachments // <--- Agrega el '?'
+        );
     }
 }
