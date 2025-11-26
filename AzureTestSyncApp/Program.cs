@@ -14,17 +14,24 @@ using Microsoft.VisualStudio.Services.Common;
 using Microsoft.VisualStudio.Services.WebApi;
 using Microsoft.VisualStudio.Services.WebApi.Patch;
 using Microsoft.VisualStudio.Services.WebApi.Patch.Json;
+using Servicios;
 using Servicios.Helpers;
+using Servicios.Interfaz;
 
 namespace AzureTestSyncApp
 {
+    public enum TestType
+    {
+        TextFileEmail, // The old Python logic
+        ExcelUserImport // The new C# Logic
+    }
+
     // 1. New Class to define a "Testing Job"
     public class GherkinTestJob
     {
         public string FeatureFilePath { get; set; }
         public int SuiteId { get; set; } // Which Suite in Azure to put this test?
-        // This holds the function to run. It takes a file path (string) and returns a List<string>
-        public Func<string, List<string>> TestFunction { get; set; } 
+        public TestType Type { get; set; } // Defines which execution strategy to use
     }
 
     class Program
@@ -43,24 +50,21 @@ namespace AzureTestSyncApp
             // 2. CONFIGURATION AREA: Define your Feature Files and their Logic here
             var jobs = new List<GherkinTestJob>
             {
-                // Job 1: Existing Logic (Reading Emails from TXT)
-                new GherkinTestJob 
-                { 
-                    FeatureFilePath = Environment.GetEnvironmentVariable("GHERKIN_PATH") ?? "python/features/mapeo_canales.feature",
-                    SuiteId = int.Parse(Environment.GetEnvironmentVariable("SUITE_ID") ?? "9"),
-                    // We wrap the helper call in a lambda
-                    TestFunction = (tempPath) => EmailFileHelper.LeerCorreosDesdeTxt(tempPath)
+                // 1. OLD PYTHON/TXT TEST
+                new GherkinTestJob
+                {
+                    FeatureFilePath = "Features/LeerCorreosDesdeTxt.feature",
+                    SuiteId = 46,
+                    Type = TestType.TextFileEmail
                 },
 
-                // Example Job 2: Add your new feature here in the future
-                /*
-                new GherkinTestJob 
-                { 
-                    FeatureFilePath = "python/features/nuevo_filtro.feature",
-                    SuiteId = 10, // A different suite ID if needed
-                    TestFunction = (tempPath) => OtraClaseHelper.MiNuevaFuncion(tempPath)
+                // 2. NEW EXCEL TEST (Integrated!)
+                new GherkinTestJob
+                {
+                    FeatureFilePath = "Features/LecturaUsuariosExcel.feature", // Adjust path if needed
+                    SuiteId = 46, // Or whatever suite you want
+                    Type = TestType.ExcelUserImport
                 }
-                */
             };
 
             bool globalSuccess = true;
@@ -157,15 +161,25 @@ namespace AzureTestSyncApp
         {
             if (string.IsNullOrWhiteSpace(gherkinText)) return ("Error", "", new List<Dictionary<string, string>>());
 
-            var lines = gherkinText.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).Select(l => l.Trim()).Where(l => !string.IsNullOrEmpty(l)).ToList();
+            var lines = gherkinText.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                                .Select(l => l.Trim())
+                                .Where(l => !string.IsNullOrEmpty(l))
+                                .ToList();
+
             string title = "Gherkin Import";
+            
+            // --- VARIABLES FOR AZURE STEPS (From Code 2) ---
             var stepsList = new List<(string Action, string Expected)>();
-            var dataRows = new List<Dictionary<string, string>>();
-            List<string> headers = null;
-            bool readingExamples = false;
             List<string> currentAction = new List<string>();
             List<string> currentExpected = new List<string>();
 
+            // --- VARIABLES FOR DATA TABLE (From Code 1) ---
+            var dataRows = new List<Dictionary<string, string>>();
+            List<string> headers = null;
+            bool headersFound = false;
+            bool readingExamples = false;
+
+            // Helper to save steps to the list
             void SaveStep()
             {
                 if (currentAction.Count > 0 || currentExpected.Count > 0)
@@ -177,30 +191,57 @@ namespace AzureTestSyncApp
 
             foreach (var line in lines)
             {
+                // 1. Capture Title
                 string cleanLine = Regex.Replace(line, @"<([^>]+)>", "@$1");
-                if (cleanLine.StartsWith("Scenario Outline:") || cleanLine.StartsWith("Scenario:")) { var parts = cleanLine.Split(new[] { ':' }, 2); if (parts.Length > 1) title = parts[1].Trim(); continue; }
-                if (cleanLine.StartsWith("Examples:")) { readingExamples = true; continue; }
+                if (cleanLine.StartsWith("Scenario Outline:") || cleanLine.StartsWith("Scenario:")) 
+                { 
+                    var parts = cleanLine.Split(new[] { ':' }, 2); 
+                    if (parts.Length > 1) title = parts[1].Trim(); 
+                    continue; 
+                }
 
+                // 2. Switch to Examples Mode
+                if (cleanLine.StartsWith("Examples:")) 
+                { 
+                    readingExamples = true; 
+                    continue; 
+                }
+
+                // 3. TABLE PARSING LOGIC (Using the BETTER logic from Code 1)
                 if (readingExamples)
                 {
                     if (cleanLine.StartsWith("|"))
                     {
-                        var rawSegments = cleanLine.Split('|');
-                        var parts = rawSegments.Skip(1).Take(rawSegments.Length - 2).Select(p => p.Trim()).ToList();
+                        var rawParts = cleanLine.Split('|');
+                        // Clean whitespace
+                        var parts = rawParts.Select(p => p.Trim()).ToList();
+
+                        // Remove empty start/end caused by markdown pipes |...|
+                        if (parts.Count > 0 && string.IsNullOrEmpty(parts[0])) parts.RemoveAt(0);
+                        if (parts.Count > 0 && string.IsNullOrEmpty(parts[parts.Count - 1])) parts.RemoveAt(parts.Count - 1);
+
                         if (parts.Count > 0)
                         {
-                            if (headers == null) headers = parts;
+                            if (!headersFound)
+                            {
+                                headers = parts;
+                                headersFound = true;
+                            }
                             else
                             {
                                 var row = new Dictionary<string, string>();
-                                for (int i = 0; i < Math.Min(headers.Count, parts.Count); i++) row[headers[i]] = parts[i];
+                                for (int i = 0; i < Math.Min(headers.Count, parts.Count); i++)
+                                {
+                                    row[headers[i]] = parts[i];
+                                }
                                 dataRows.Add(row);
                             }
                         }
                     }
-                    continue;
+                    continue; // Skip step processing if we are in Examples
                 }
 
+                // 4. STEP PARSING LOGIC (Keep from Code 2 for Azure XML)
                 bool isAction = cleanLine.StartsWith("Given") || cleanLine.StartsWith("When");
                 bool isResult = cleanLine.StartsWith("Then");
                 bool isCont = cleanLine.StartsWith("And") || cleanLine.StartsWith("But");
@@ -209,8 +250,11 @@ namespace AzureTestSyncApp
                 else if (isResult) { currentExpected.Add(cleanLine); }
                 else if (isCont) { if (currentExpected.Count > 0) currentExpected.Add(cleanLine); else currentAction.Add(cleanLine); }
             }
+            
+            // Save any remaining step
             SaveStep();
 
+            // 5. GENERATE XML (Keep from Code 2)
             StringBuilder xmlStepsBuilder = new StringBuilder();
             xmlStepsBuilder.Append($"<steps id=\"0\" last=\"{stepsList.Count + 1}\">");
             for (int i = 0; i < stepsList.Count; i++)
@@ -218,6 +262,7 @@ namespace AzureTestSyncApp
                 xmlStepsBuilder.Append($"<step id=\"{i + 2}\" type=\"ActionStep\"><parameterizedString isformatted=\"false\">{stepsList[i].Action}</parameterizedString><parameterizedString isformatted=\"false\">{stepsList[i].Expected}</parameterizedString><description/></step>");
             }
             xmlStepsBuilder.Append("</steps>");
+
             return (title, xmlStepsBuilder.ToString(), dataRows);
         }
 
@@ -296,80 +341,187 @@ namespace AzureTestSyncApp
         public async Task EjecutarTestCaseAsync(int? workItemId, int suiteId, string outcome, string runComment)
         {
             if (!workItemId.HasValue) return;
-            
-            // Try to get points (Retry logic included)
+
+            Console.WriteLine($"   ⏳ Buscando Test Point para TC #{workItemId} en Suite {suiteId}...");
+
+            // Try to get points (Retry logic with better debugging)
             List<TestPoint> points = null;
-            for (int i = 0; i < 5; i++) {
-                try { points = await _testClient.GetPointsAsync(_projectName, _planId, suiteId, testCaseId: workItemId.ToString()); if (points != null && points.Count > 0) break; } catch { } await Task.Delay(1000);
+            Exception lastError = null;
+
+            // Increased retries to 10 and delay to 2 seconds (Azure can be slow)
+            for (int i = 0; i < 10; i++) 
+            {
+                try 
+                { 
+                    // We explicitly ask for the points matching this specific Test Case ID
+                    points = await _testClient.GetPointsAsync(_projectName, _planId, suiteId, testCaseId: workItemId.ToString()); 
+                    
+                    if (points != null && points.Count > 0) 
+                        break; 
+                } 
+                catch (Exception ex) 
+                { 
+                    lastError = ex;
+                    // Optional: Print a dot for every failed attempt to visualize waiting
+                    Console.Write("."); 
+                } 
+                
+                await Task.Delay(2000); // Wait 2 seconds between retries
+            }
+            Console.WriteLine(); // New line after dots
+
+            if (points == null || points.Count == 0) 
+            { 
+                Console.WriteLine("❌ No se encontró el Test Point."); 
+                
+                // --- NEW: PRINT DEBUG INFO ---
+                Console.WriteLine("   🔍 DETALLES DEL ERROR:");
+                Console.WriteLine($"      Project: {_projectName}");
+                Console.WriteLine($"      PlanId: {_planId}");
+                Console.WriteLine($"      SuiteId: {suiteId}");
+                Console.WriteLine($"      TestCaseId: {workItemId}");
+                
+                if (lastError != null)
+                    Console.WriteLine($"      ⚠️ Azure API Error: {lastError.Message}");
+                else
+                    Console.WriteLine($"      ⚠️ Azure retornó 0 puntos. (Posible causa: La Suite no tiene 'Default Configuration' asignada).");
+                
+                return; 
             }
 
-            if (points == null || points.Count == 0) { Console.WriteLine("❌ No se encontró el Test Point."); return; }
+            // Identify the specific point ID
+            var pointId = points[0].Id;
+            // Console.WriteLine($"   📍 Test Point encontrado: {pointId}");
 
-            var runCreateModel = new RunCreateModel(name: $"AutoRun - TC {workItemId}", plan: new ShallowReference { Id = _planId.ToString() }, pointIds: new[] { points[0].Id });
-            var testRun = await _testClient.CreateTestRunAsync(runCreateModel, _projectName);
+            var runCreateModel = new RunCreateModel(
+                name: $"AutoRun - TC {workItemId}", 
+                plan: new ShallowReference { Id = _planId.ToString() }, 
+                pointIds: new[] { pointId }
+            );
+
+            TestRun testRun;
+            try
+            {
+                testRun = await _testClient.CreateTestRunAsync(runCreateModel, _projectName);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Error creando Test Run: {ex.Message}");
+                return;
+            }
 
             TestCaseResult resultToUpdate = null;
-            for (int i = 0; i < 10; i++) {
+            for (int i = 0; i < 10; i++) 
+            {
                 var results = await _testClient.GetTestResultsAsync(_projectName, testRun.Id);
                 if (results != null && results.Count > 0) { resultToUpdate = results[0]; break; }
                 await Task.Delay(1000);
             }
 
-            if (resultToUpdate != null) {
-                resultToUpdate.State = "Completed"; resultToUpdate.Outcome = outcome; resultToUpdate.Comment = runComment;
+            if (resultToUpdate != null) 
+            {
+                resultToUpdate.State = "Completed"; 
+                resultToUpdate.Outcome = outcome; 
+                resultToUpdate.Comment = runComment;
+                
                 await _testClient.UpdateTestResultsAsync(new[] { resultToUpdate }, _projectName, testRun.Id);
                 await _testClient.UpdateTestRunAsync(new RunUpdateModel(state: "Completed"), _projectName, testRun.Id);
-                Console.WriteLine($"✅ Ejecución registrada: {outcome}");
+                Console.WriteLine($"✅ Ejecución registrada en Azure: {outcome}");
+            }
+            else
+            {
+                Console.WriteLine("⚠️ Se creó la ejecución (Run) pero no se pudo recuperar el Resultado para actualizarlo.");
             }
         }
 
-        // 4. MODIFIED: Accepts the Job's specific Test Function
-        private (string Outcome, List<string> Log) ValidarYEjecutar(List<Dictionary<string, string>> dataRows, Func<string, List<string>> testFunction)
+        // Pass the whole JOB object now, not just a function
+        private (string Outcome, List<string> Log) ValidarYEjecutar(List<Dictionary<string, string>> dataRows, GherkinTestJob job)
         {
             string finalOutcome = "Passed";
             var executionLog = new List<string>();
-            int passedCount = 0;
-
-            Console.WriteLine($"🧪 Validando {dataRows.Count} casos...");
+            
+            Console.WriteLine($"🧪 Validando {dataRows.Count} casos (Modo: {job.Type})...");
 
             for (int i = 0; i < dataRows.Count; i++)
             {
                 var row = dataRows[i];
-                string rawInput = row.ContainsKey("contenido_txt") ? row["contenido_txt"] : "";
-                string expectedString = row.ContainsKey("lista_valida") ? row["lista_valida"] : "";
-                
-                string tempFilePath = Path.GetTempFileName();
+                string tempFilePath = Path.GetTempFileName().Replace(".tmp", (job.Type == TestType.ExcelUserImport ? ".xlsx" : ".txt"));
+
                 try
                 {
-                    File.WriteAllText(tempFilePath, rawInput.Replace(";", Environment.NewLine));
-
-                    // DYNAMIC EXECUTION HERE
-                    List<string> actualEmails = testFunction(tempFilePath);
-
-                    var expectedList = expectedString.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(e => e.Trim()).OrderBy(e => e).ToList();
-                    var actualListSorted = actualEmails.OrderBy(e => e).ToList();
-
-                    if (Enumerable.SequenceEqual(actualListSorted, expectedList))
+                    // ======================================================
+                    // STRATEGY 1: TEXT FILE EMAIL
+                    // ======================================================
+                    if (job.Type == TestType.TextFileEmail)
                     {
-                        executionLog.Add($"✅ Row {i + 1} Passed");
-                        passedCount++;
+                        string rawInput = row.ContainsKey("contenido_txt") ? row["contenido_txt"] : "";
+                        string expectedString = row.ContainsKey("lista_valida") ? row["lista_valida"] : "";
+
+                        File.WriteAllText(tempFilePath, rawInput.Replace(";", Environment.NewLine));
+
+                        var actualEmails = EmailFileHelper.LeerCorreosDesdeTxt(tempFilePath);
+
+                        var expectedList = expectedString.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(e => e.Trim()).OrderBy(e => e).ToList();
+                        var actualListSorted = actualEmails.OrderBy(e => e).ToList();
+
+                        if (Enumerable.SequenceEqual(actualListSorted, expectedList))
+                        {
+                            string msg = $"✅ Row {i + 1} Passed";
+                            executionLog.Add(msg);
+                            Console.WriteLine(msg); // <--- PRINT TO CONSOLE
+                        }
+                        else
+                        {
+                            finalOutcome = "Failed";
+                            string msg = $"❌ Row {i + 1} Failed. Expected: {expectedString} | Actual: {string.Join(",", actualListSorted)}";
+                            executionLog.Add(msg);
+                            Console.WriteLine(msg); // <--- PRINT TO CONSOLE
+                        }
                     }
-                    else
+                    // ======================================================
+                    // STRATEGY 2: EXCEL IMPORT
+                    // ======================================================
+                    else if (job.Type == TestType.ExcelUserImport)
                     {
-                        finalOutcome = "Failed";
-                        executionLog.Add($"❌ Row {i + 1} Failed. Expected: [{expectedString}] vs Actual: [{string.Join(", ", actualListSorted)}]");
+                        string rawInput = row.ContainsKey("datos_entrada") ? row["datos_entrada"] : "";
+                        int expCount = int.Parse(row.ContainsKey("cantidad_esperada") ? row["cantidad_esperada"] : "0");
+                        string expFirst = row.ContainsKey("email_primero") ? row["email_primero"] : "N/A";
+                        string expLast = row.ContainsKey("email_ultimo") ? row["email_ultimo"] : "N/A";
+
+                        var inputDTOs = ExcelLogic.ParseInputString(rawInput);
+                        ExcelLogic.CreateTempExcelFile(tempFilePath, inputDTOs);
+
+                        IExcelService service = new ExcelService();
+                        var resultData = service.LeerUsuariosDesdeExcel(tempFilePath);
+
+                        if (ExcelLogic.ValidateScenario(resultData, expCount, expFirst, expLast, out string reason))
+                        {
+                            string msg = $"✅ Row {i + 1} Passed";
+                            executionLog.Add(msg);
+                            Console.WriteLine(msg); // <--- PRINT TO CONSOLE
+                        }
+                        else
+                        {
+                            finalOutcome = "Failed";
+                            string msg = $"❌ Row {i + 1} Failed: {reason}";
+                            executionLog.Add(msg);
+                            Console.WriteLine(msg); // <--- PRINT TO CONSOLE
+                        }
                     }
                 }
-                catch (Exception e)
+                catch (Exception ex)
                 {
                     finalOutcome = "Failed";
-                    executionLog.Add($"💥 Row {i + 1} Exception: {e.Message}");
+                    string msg = $"💥 Row {i + 1} Error: {ex.Message}";
+                    executionLog.Add(msg);
+                    Console.WriteLine(msg); // <--- PRINT TO CONSOLE
                 }
                 finally
                 {
                     if (File.Exists(tempFilePath)) File.Delete(tempFilePath);
                 }
             }
+
             return (finalOutcome, executionLog);
         }
 
@@ -385,8 +537,8 @@ namespace AzureTestSyncApp
             var (_, _, dataRows) = ParseGherkinRobust(gherkinRaw);
             if (dataRows.Count == 0) return false;
 
-            // Pass the job's function to the validator
-            var (finalOutcome, executionLog) = ValidarYEjecutar(dataRows, job.TestFunction);
+            // Pass the job to the validator so it can route correctly
+            var (finalOutcome, executionLog) = ValidarYEjecutar(dataRows, job);
 
             if (workItemId.HasValue)
             {
