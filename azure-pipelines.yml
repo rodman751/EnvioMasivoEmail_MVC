@@ -41,7 +41,7 @@ steps:
     PERSONAL_ACCESS_TOKEN: $(MyAzurePAT) 
     ORGANIZATION_URL: 'https://dev.azure.com/UTN-FabricaSoftware-2025'
     PROJECT_NAME: 'CorreosMasivos'
-    PLAN_ID: '6'
+    PLAN_ID: '38'
 
 # 4. Build the Web App
 - task: DotNetCoreCLI@2
