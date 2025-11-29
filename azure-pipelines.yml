@@ -9,12 +9,33 @@ variables:
   webProject: 'EnvioMasivoEmail_MVC/EnvioMasivoEmail_MVC.csproj'
   syncToolProject: 'AzureTestSyncApp/AzureTestSyncApp.csproj'
   NUGET_PACKAGES: $(Pipeline.Workspace)/.nuget/packages
-  # OPTIMIZATION: Disable Telemetry and Logos for slightly faster CLI startup
   DOTNET_CLI_TELEMETRY_OPTOUT: 1
   DOTNET_NOLOGO: 1
+  # Default the variable to false
+  RunSyncSteps: 'false'
 
 steps:
-# 1. Cache NuGet Packages
+# 0. IMPORTANT: Ensure git history is available for diff
+- checkout: self
+  fetchDepth: 0
+
+# 1. NEW STEP: Check if .feature files OR Sync Tool code changed
+- powershell: |
+    # Get the list of changed files between the last commit and current
+    $changes = git diff --name-only HEAD~1 HEAD
+    Write-Host "Changed files:"
+    Write-Host $changes
+    
+    # Check if any file ends with .feature OR contains 'AzureTestSyncApp' in the path
+    if ($changes -match "\.feature$" -or $changes -match "AzureTestSyncApp") {
+      Write-Host "##vso[task.setvariable variable=RunSyncSteps]true"
+      Write-Host "Detected changes in Feature files or Sync Tool code. Sync Tool will run."
+    } else {
+      Write-Host "No relevant changes detected. Sync Tool steps will be skipped."
+    }
+  displayName: 'Check for changes (.feature or SyncTool)'
+
+# 2. Cache NuGet Packages (Always run)
 - task: Cache@2
   displayName: 'Cache NuGet packages'
   inputs:
@@ -23,26 +44,29 @@ steps:
        nuget | "$(Agent.OS)"
     path: $(NUGET_PACKAGES)
 
-# 2. Restore dependencies
+# 3. Restore dependencies (Always run)
 - task: DotNetCoreCLI@2
   displayName: 'Restore All Dependencies'
   inputs:
     command: 'restore'
     projects: '**/*.csproj'
 
-# 3. Build the Console App (Sync Tool)
+# 4. Build the Console App (CONDITIONAL)
 - task: DotNetCoreCLI@2
   displayName: 'Build Sync Tool'
+  # Only run if RunSyncSteps is true
+  condition: and(succeeded(), eq(variables['RunSyncSteps'], 'true'))
   inputs:
     command: 'build'
     projects: '$(syncToolProject)'
-    # OPTIMIZATION: Output to a known directory for direct execution
     arguments: '--configuration $(buildConfiguration) --no-restore --output $(Build.BinariesDirectory)/SyncTool'
 
-# 4. EXECUTE the Console App (Directly, no "dotnet run" overhead)
+# 5. EXECUTE the Console App (CONDITIONAL)
 - script: |
     dotnet "$(Build.BinariesDirectory)/SyncTool/AzureTestSyncApp.dll"
   displayName: 'Run AzureTestSyncApp Direct'
+  # Only run if RunSyncSteps is true
+  condition: and(succeeded(), eq(variables['RunSyncSteps'], 'true'))
   workingDirectory: 'AzureTestSyncApp'
   env:
     PERSONAL_ACCESS_TOKEN: $(MyAzurePAT) 
@@ -50,7 +74,7 @@ steps:
     PROJECT_NAME: 'CorreosMasivos'
     PLAN_ID: '38'
 
-# 5. Publish the Web App
+# 6. Publish the Web App (Always runs)
 - task: DotNetCoreCLI@2
   displayName: 'Publish Web App'
   inputs:
@@ -60,7 +84,7 @@ steps:
     arguments: '--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory) --no-restore'
     zipAfterPublish: true
 
-# 6. Deploy to Azure
+# 7. Deploy to Azure
 - task: AzureWebApp@1
   displayName: 'Azure Web App Deploy'
   inputs:
