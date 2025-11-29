@@ -6,6 +6,7 @@ using Servicios.Interfaz;
 using Servicios.Helpers;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading.Tasks;
 using MailKit.Net.Smtp;
 using MailKit.Security;
@@ -61,19 +62,9 @@ namespace Servicios
                 msg.Subject = subject;
 
                 var builder = new BodyBuilder();
-                // Banner opcional
-                var bannerPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "Plantillas", "img2.jpg");
-                //var bannerPath = Path.Combine(AppContext.BaseDirectory, "Plantillas", "img2.jpg");
-                if (File.Exists(bannerPath))
-                {
-                    var bannerImage = builder.LinkedResources.Add(bannerPath);
-                    bannerImage.ContentId = MimeUtils.GenerateMessageId();
-                    bodyHtml = bodyHtml.Replace("{{img2}}", $"<img src=\"cid:{bannerImage.ContentId}\" style=\"max-width:100%;height:auto;\" />");
-                }
-                else
-                {
-                    bodyHtml = bodyHtml.Replace("{{img2}}", "IMG no encontrada");
-                }
+
+                bodyHtml = IncrustarBanner(builder, bodyHtml);
+
                 builder.HtmlBody = bodyHtml;
                 if (attachments != null)
                 {
@@ -160,6 +151,25 @@ namespace Servicios
         public List<string> LeerCorreosDesdeTxt(string rutaTxt)
         {
             return EmailFileHelper.LeerCorreosDesdeTxt(rutaTxt);
+        }
+
+        private string IncrustarBanner(BodyBuilder builder, string bodyHtml)
+        {
+            // Definimos la ruta de la imagen
+            var bannerPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "Plantillas", "img2.jpg");
+
+            if (File.Exists(bannerPath))
+            {
+                // 1. Agrega la imagen al builder
+                var bannerImage = builder.LinkedResources.Add(bannerPath);
+                bannerImage.ContentId = MimeUtils.GenerateMessageId();
+
+                // 2. Retorna el HTML con el CID reemplazado
+                return bodyHtml.Replace("{{img2}}", $"<img src=\"cid:{bannerImage.ContentId}\" style=\"max-width:100%;height:auto;\" />");
+            }
+
+            // Si no existe, retorna el HTML con el texto de error
+            return bodyHtml.Replace("{{img2}}", "IMG no encontrada");
         }
     }
 }
