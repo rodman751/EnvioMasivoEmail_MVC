@@ -28,16 +28,16 @@ steps:
     arguments: '--configuration $(buildConfiguration)'
 
 # 3. EXECUTE the Console App to Sync Gherkin Files
-# This runs Program.cs which updates Azure DevOps Test Plans
 - task: DotNetCoreCLI@2
   displayName: 'Run AzureTestSyncApp'
   inputs:
     command: 'run'
-    projects: '$(syncToolProject)'
+    # CHANGE 1: Use only the filename, because we are already inside the folder
+    projects: 'AzureTestSyncApp.csproj'
     arguments: '--configuration $(buildConfiguration)'
+    # CHANGE 2: Set the working directory to the subfolder
+    workingDirectory: 'AzureTestSyncApp'
   env:
-    # MAP PIPELINE VARIABLES TO C# ENVIRONMENT VARIABLES
-    # You must define 'MyAzurePAT' in your Pipeline Library/Variables
     PERSONAL_ACCESS_TOKEN: $(MyAzurePAT) 
     ORGANIZATION_URL: 'https://dev.azure.com/UTN-FabricaSoftware-2025'
     PROJECT_NAME: 'CorreosMasivos'
