@@ -94,7 +94,7 @@ namespace AzureTestSyncApp
                 globalSuccess = false;
             }
 
-            Console.WriteLine("\n--- PROCESO FINALIZADO ---");
+            Console.WriteLine("\n--- PROCESO FINALIZADO :D ---");
 
             // CHANGE THIS: Comment out this line.
             // This line tells Azure Pipeline "The whole task failed" if any test case failed.
