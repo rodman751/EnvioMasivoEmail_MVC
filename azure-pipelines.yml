@@ -1,0 +1,73 @@
+# Configuración del Trigger:
+# Se ejecutará automáticamente cuando hagas push a 'main' 
+# o a tu rama de trabajo 'feature/pipeline-setup' como pidió el requerimiento.
+trigger:
+- main
+- feature/pipeline-setup
+
+# Imagen de la máquina virtual donde se ejecutará el pipeline.
+# 'ubuntu-latest' es más rápido y barato para .NET Core/.NET 5/6/7/8.
+# Si tu proyecto es .NET Framework (antiguo), cambia esto a 'windows-latest'.
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  # Configuración de compilación (Release para producción)
+  buildConfiguration: 'Release'
+
+steps:
+# Paso 0: Instalar el SDK de .NET (Opcional pero recomendado para asegurar la versión)
+# Ajusta la versión (6.x, 7.x, 8.x) según lo que uses en tu proyecto MVC.
+- task: UseDotNet@2
+  displayName: 'Instalar .NET SDK'
+  inputs:
+    packageType: 'sdk'
+    version: '8.x' # CAMBIA ESTO si usas .NET 6 o 7
+    installationPath: $(Agent.ToolsDirectory)/dotnet
+
+# Paso 1: Restore (Restaurar dependencias NuGet)
+- task: DotNetCoreCLI@2
+  displayName: 'Restore Nuget Packages'
+  inputs:
+    command: 'restore'
+    projects: '**/*.csproj' # Busca todos los archivos de proyecto (.csproj)
+    feedsToUse: 'select'
+
+# Paso 2: Build (Compilar el proyecto)
+- task: DotNetCoreCLI@2
+  displayName: 'Build Project'
+  inputs:
+    command: 'build'
+    projects: '**/*.csproj'
+    arguments: '--configuration $(buildConfiguration) --no-restore'
+
+# Paso 3: Test (Ejecutar pruebas unitarias)
+# Aunque mencionas que separaste la lógica, el requerimiento pide este paso explícitamente.
+# Si no tienes un proyecto de test aún, este paso dará un aviso pero no fallará si no encuentra tests,
+# o puedes comentarlo temporalmente si falla.
+- task: DotNetCoreCLI@2
+  displayName: 'Run Tests'
+  inputs:
+    command: 'test'
+    projects: '**/*Tests/*.csproj' # Asume que tus tests están en carpetas que terminan en 'Tests'
+    arguments: '--configuration $(buildConfiguration) --no-build'
+
+# Paso 4: Publish (Publicar y empaquetar)
+# Esto genera los binarios listos para producción en una carpeta temporal.
+# El argumento '--output' es clave para preparar el artefacto.
+- task: DotNetCoreCLI@2
+  displayName: 'Publish App'
+  inputs:
+    command: 'publish'
+    publishWebProjects: true # Importante para MVC: detecta el proyecto web automáticamente
+    arguments: '--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)'
+    zipAfterPublish: true # Esto asegura que se genere un .zip
+
+# Paso 5: Publish Artifact (Subir el .zip a Azure DevOps)
+# Esto cumple el requerimiento de "Entregable".
+- task: PublishBuildArtifacts@1
+  displayName: 'Publish Artifact: drop'
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+    ArtifactName: 'drop'
+    publishLocation: 'Container'
