@@ -2,40 +2,50 @@ trigger:
 - master
 
 pool:
-  vmImage: 'windows-latest'
+  vmImage: 'windows-latest' # Kept as Windows per your request
 
 variables:
   buildConfiguration: 'Release'
-  # Path to your web project
   webProject: 'EnvioMasivoEmail_MVC/EnvioMasivoEmail_MVC.csproj'
-  # Path to your sync console app
   syncToolProject: 'AzureTestSyncApp/AzureTestSyncApp.csproj'
+  # Define a path for NuGet packages to enable caching
+  NUGET_PACKAGES: $(Pipeline.Workspace)/.nuget/packages
 
 steps:
-# 1. Restore dependencies for ALL projects (Web + Console)
+# 1. Cache NuGet Packages (Crucial for Windows speed)
+- task: Cache@2
+  displayName: 'Cache NuGet packages'
+  inputs:
+    key: 'nuget | "$(Agent.OS)" | **/packages.lock.json,!**/bin/**,!**/obj/**'
+    restoreKeys: |
+       nuget | "$(Agent.OS)"
+    path: $(NUGET_PACKAGES)
+
+# 2. Restore dependencies for ALL projects
 - task: DotNetCoreCLI@2
   displayName: 'Restore All Dependencies'
   inputs:
     command: 'restore'
     projects: '**/*.csproj'
 
-# 2. Build the Console App (Sync Tool)
+# 3. Build the Console App (Sync Tool)
 - task: DotNetCoreCLI@2
   displayName: 'Build Sync Tool'
   inputs:
     command: 'build'
     projects: '$(syncToolProject)'
-    arguments: '--configuration $(buildConfiguration)'
+    # Added --no-restore so it uses the packages from Step 2
+    arguments: '--configuration $(buildConfiguration) --no-restore'
 
-# 3. EXECUTE the Console App to Sync Gherkin Files
+# 4. EXECUTE the Console App
 - task: DotNetCoreCLI@2
   displayName: 'Run AzureTestSyncApp'
   inputs:
     command: 'run'
-    # CHANGE THIS BACK: Use the variable (or the full path 'AzureTestSyncApp/AzureTestSyncApp.csproj')
-    projects: '$(syncToolProject)' 
-    arguments: '--configuration $(buildConfiguration)'
-    # KEEP THIS: This ensures the app runs "inside" the folder
+    projects: '$(syncToolProject)'
+    # OPTIMIZATION: --no-build tells dotnet to assume the binary is ready. 
+    # This skips the "check for changes" phase.
+    arguments: '--configuration $(buildConfiguration) --no-build'
     workingDirectory: 'AzureTestSyncApp'
   env:
     PERSONAL_ACCESS_TOKEN: $(MyAzurePAT) 
@@ -43,22 +53,18 @@ steps:
     PROJECT_NAME: 'CorreosMasivos'
     PLAN_ID: '38'
 
-# 4. Build the Web App
-- task: DotNetCoreCLI@2
-  displayName: 'Build Web App'
-  inputs:
-    command: 'build'
-    projects: '$(webProject)'
-    arguments: '--configuration $(buildConfiguration)'
+# REMOVED: "Build Web App" step. 
+# Reason: The "Publish" command below compiles the code anyway.
 
-# 5. Publish the Web App (creates the deployment zip)
+# 5. Publish the Web App (Compiles & Zips)
 - task: DotNetCoreCLI@2
   displayName: 'Publish Web App'
   inputs:
     command: 'publish'
     projects: '$(webProject)'
     publishWebProjects: false 
-    arguments: '--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)'
+    # OPTIMIZATION: --no-restore skips the restore check (we did it in step 2)
+    arguments: '--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory) --no-restore'
     zipAfterPublish: true
 
 # 6. Deploy to Azure
