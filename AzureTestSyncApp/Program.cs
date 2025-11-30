@@ -363,7 +363,7 @@ namespace AzureTestSyncApp
         {
             if (!workItemId.HasValue) return;
 
-            Console.WriteLine($"  ⏳ Buscando Test Point para TC #{workItemId} en Suite {suiteId}...");
+            Console.WriteLine($" ⏳ Buscando Test Point para TC #{workItemId} en Suite {suiteId}...");
 
             // Try to get points (Retry logic with better debugging)
             List<TestPoint> points = null;
