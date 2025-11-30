@@ -121,7 +121,7 @@ steps:
     ArtifactName: 'drop' # Nombre de la carpeta que verás al descargar
     publishLocation: 'Container'
 
-# 7. Deploy to Azure
+# 7. Deploy to Azure 
 - task: AzureWebApp@1
   displayName: 'Azure Web App Deploy'
   inputs:
